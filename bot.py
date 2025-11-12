@@ -6,9 +6,9 @@ import json
 
 class DiscordSelfBot:
     def __init__(self):
-        self.token = os.getenv('TOKEN')
-        self.bump_channel_id = '1438084818725244971'  # ID do canal
-        self.guild_id = '1438084818725244971'  # ID do servidor (é o mesmo)
+        self.token = os.getenv('TOKEN')  # Token do Railway
+        self.guild_id = '1438084818725244971'  # ID fixo do servidor
+        self.bump_channel_id = None  # Será definido via comando
         self.session = None
         self.headers = {
             'Authorization': self.token,
@@ -18,14 +18,40 @@ class DiscordSelfBot:
 
     async def start(self):
         self.session = aiohttp.ClientSession(headers=self.headers)
-        print('Selfbot started!')
+        print('🤖 Selfbot iniciado!')
         
         # Testa a conexão primeiro
         if await self.test_connection():
-            print('✅ Token válido! Iniciando loop de bump...')
-            await self.bump_loop()
+            print('✅ Token válido!')
+            await self.setup_channel()
         else:
             print('❌ Token inválido ou erro de conexão')
+
+    async def setup_channel(self):
+        """Configura o canal de bump interativamente"""
+        print('\n🎯 Configuração do Canal de Bump')
+        print('Para encontrar o ID do canal:')
+        print('1. Ative o Modo Desenvolvedor no Discord')
+        print('2. Clique com botão direito no canal → "Copiar ID"')
+        print('3. Cole o ID abaixo\n')
+        
+        while not self.bump_channel_id:
+            try:
+                channel_id = input('📥 Digite o ID do canal: ').strip()
+                
+                # Validação básica do ID
+                if channel_id.isdigit() and len(channel_id) >= 17:
+                    self.bump_channel_id = channel_id
+                    print(f'✅ Canal configurado: {channel_id}')
+                    await self.bump_loop()
+                else:
+                    print('❌ ID inválido. Tente novamente.')
+                    
+            except (KeyboardInterrupt, EOFError):
+                print('\n👋 Saindo...')
+                break
+            except Exception as e:
+                print(f'❌ Erro: {e}')
 
     async def test_connection(self):
         """Testa a conexão com a API do Discord"""
@@ -33,7 +59,7 @@ class DiscordSelfBot:
             async with self.session.get('https://discord.com/api/v9/users/@me') as response:
                 if response.status == 200:
                     user_data = await response.json()
-                    print(f"✅ Conectado como: {user_data['username']}#{user_data['discriminator']}")
+                    print(f"👤 Conectado como: {user_data['username']}#{user_data['discriminator']}")
                     return True
                 else:
                     print(f"❌ Erro de autenticação: {response.status}")
@@ -44,6 +70,10 @@ class DiscordSelfBot:
 
     async def execute_bump_command(self):
         """Executa o comando slash /bump do Disboard"""
+        if not self.bump_channel_id:
+            print('❌ Canal não configurado!')
+            return False
+
         payload = {
             'type': 2,
             'application_id': '302050872383242240',  # ID do Disboard
@@ -82,8 +112,6 @@ class DiscordSelfBot:
                     return True
                 else:
                     print(f'❌ Erro ao executar bump: {response.status}')
-                    text = await response.text()
-                    print(f'Resposta: {text}')
                     return False
         except Exception as e:
             print(f'❌ Erro na requisição: {e}')
@@ -93,33 +121,26 @@ class DiscordSelfBot:
         """Loop principal para executar bumps periodicamente"""
         bump_count = 0
         
-        # Primeiro bump imediatamente
-        await asyncio.sleep(2)
-        print('--- Tentativa de bump #1 ---')
-        success = await self.execute_bump_command()
-        
-        if success:
-            print(f'✅ Bump #1 realizado com sucesso!')
-        else:
-            print(f'❌ Falha no bump #1')
+        print(f'\n🚀 Iniciando loop de bump no servidor: {self.guild_id}')
+        print('⏰ Bumps automáticos a cada 2-3 horas\n')
         
         while True:
-            # Espera 2-3 horas (aleatório) para o próximo bump
-            wait_seconds = random.randint(7200, 10800)  # 2-3 horas em segundos
-            wait_hours = wait_seconds / 3600
-            print(f'⏰ Próximo bump em {wait_hours:.2f} horas...')
-            
-            await asyncio.sleep(wait_seconds)
-            
             bump_count += 1
-            print(f'\n--- Tentativa de bump #{bump_count + 1} ---')
+            print(f'--- Tentativa de bump #{bump_count} ---')
             
             success = await self.execute_bump_command()
             
             if success:
-                print(f'✅ Bump #{bump_count + 1} realizado com sucesso!')
+                print(f'✅ Bump #{bump_count} realizado com sucesso!')
             else:
-                print(f'❌ Falha no bump #{bump_count + 1}')
+                print(f'❌ Falha no bump #{bump_count}')
+            
+            # Espera 2-3 horas (aleatório) para o próximo bump
+            wait_seconds = random.randint(7200, 10800)  # 2-3 horas em segundos
+            wait_hours = wait_seconds / 3600
+            print(f'⏰ Próximo bump em {wait_hours:.2f} horas...\n')
+            
+            await asyncio.sleep(wait_seconds)
 
     async def close(self):
         """Fecha a sessão"""
@@ -131,7 +152,7 @@ async def main():
     try:
         await bot.start()
     except KeyboardInterrupt:
-        print('\nParando o bot...')
+        print('\n👋 Parando o bot...')
     finally:
         await bot.close()
 
@@ -139,9 +160,8 @@ if __name__ == "__main__":
     token = os.getenv('TOKEN')
     
     if not token:
-        raise ValueError("❌ Variável de ambiente TOKEN não encontrada!")
+        raise ValueError("❌ Variável de ambiente TOKEN não encontrada no Railway!")
     
-    print('🚀 Iniciando bot de bump...')
-    print(f'📝 Canal de bump: 1438084818725244971')
-    print(f'🏠 Servidor: 1438084818725244971')
+    print('🎮 Discord Bump Bot')
+    print('🏠 Servidor: 1438084818725244971')
     asyncio.run(main())
