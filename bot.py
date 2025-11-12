@@ -8,7 +8,7 @@ class DiscordSelfBot:
     def __init__(self):
         self.token = os.getenv('TOKEN')  # Token do Railway
         self.guild_id = '1438084818725244971'  # ID fixo do servidor
-        self.bump_channel_id = os.getenv('BUMP_CHANNEL')  # Canal via variável de ambiente
+        self.bump_channel_id = None  # Será definido automaticamente
         self.session = None
         self.headers = {
             'Authorization': self.token,
@@ -20,17 +20,10 @@ class DiscordSelfBot:
         self.session = aiohttp.ClientSession(headers=self.headers)
         print('🤖 Selfbot iniciado!')
         
-        # Verifica se as variáveis estão configuradas
-        if not self.bump_channel_id:
-            print('❌ ERRO: Variável BUMP_CHANNEL não encontrada!')
-            print('💡 Configure no Railway: BUMP_CHANNEL=id_do_canal')
-            return
-        
         # Testa a conexão primeiro
         if await self.test_connection():
             print('✅ Token válido!')
-            print(f'📝 Canal configurado: {self.bump_channel_id}')
-            await self.bump_loop()
+            await self.find_and_setup_channel()
         else:
             print('❌ Token inválido ou erro de conexão')
 
@@ -49,14 +42,82 @@ class DiscordSelfBot:
             print(f"❌ Erro de conexão: {e}")
             return False
 
+    async def get_guild_channels(self):
+        """Busca todos os canais do servidor"""
+        try:
+            url = f'https://discord.com/api/v9/guilds/{self.guild_id}/channels'
+            async with self.session.get(url) as response:
+                if response.status == 200:
+                    channels = await response.json()
+                    return channels
+                else:
+                    print(f"❌ Erro ao buscar canais: {response.status}")
+                    return []
+        except Exception as e:
+            print(f"❌ Erro ao buscar canais: {e}")
+            return []
+
+    async def find_and_setup_channel(self):
+        """Encontra e configura o canal de bump automaticamente"""
+        print(f'\n🔍 Procurando canais no servidor {self.guild_id}...')
+        
+        channels = await self.get_guild_channels()
+        
+        if not channels:
+            print('❌ Não foi possível encontrar canais no servidor')
+            return
+        
+        # Filtra apenas canais de texto
+        text_channels = [ch for ch in channels if ch.get('type') == 0]
+        
+        if not text_channels:
+            print('❌ Nenhum canal de texto encontrado no servidor')
+            return
+        
+        print(f'\n📋 Canais disponíveis no servidor:')
+        print('=' * 50)
+        
+        for i, channel in enumerate(text_channels, 1):
+            channel_name = channel.get('name', 'Unknown')
+            channel_id = channel.get('id')
+            print(f'{i}. #{channel_name} (ID: {channel_id})')
+        
+        print('=' * 50)
+        
+        # Tenta encontrar um canal com nome sugerindo "bump" ou "disboard"
+        suggested_channels = []
+        for channel in text_channels:
+            channel_name = channel.get('name', '').lower()
+            if any(word in channel_name for word in ['bump', 'disboard', 'bot', 'commands', 'geral', 'general']):
+                suggested_channels.append(channel)
+        
+        if suggested_channels:
+            # Usa o primeiro canal sugerido automaticamente
+            self.bump_channel_id = suggested_channels[0]['id']
+            channel_name = suggested_channels[0]['name']
+            print(f'\n✅ Canal selecionado automaticamente: #{channel_name}')
+            print('💡 Dica: Se quiser outro canal, modifique o código')
+            await self.bump_loop()
+        else:
+            # Se não encontrar canal sugerido, usa o primeiro canal
+            self.bump_channel_id = text_channels[0]['id']
+            channel_name = text_channels[0]['name']
+            print(f'\n✅ Usando o primeiro canal disponível: #{channel_name}')
+            print('💡 Dica: Se quiser outro canal, modifique o código')
+            await self.bump_loop()
+
     async def execute_bump_command(self):
         """Executa o comando slash /bump do Disboard"""
+        if not self.bump_channel_id:
+            print('❌ Canal não configurado!')
+            return False
+
         payload = {
             'type': 2,
             'application_id': '302050872383242240',  # ID do Disboard
             'guild_id': self.guild_id,  # ID do servidor
             'channel_id': self.bump_channel_id,  # ID do canal
-            'session_id': 'random_session_id_123',
+            'session_id': f'session_{random.randint(1000, 9999)}',
             'data': {
                 'version': '11926',
                 'id': '947088344167366698',  # ID do comando bump
@@ -89,8 +150,6 @@ class DiscordSelfBot:
                     return True
                 else:
                     print(f'❌ Erro ao executar bump: {response.status}')
-                    text = await response.text()
-                    print(f'Detalhes: {text}')
                     return False
         except Exception as e:
             print(f'❌ Erro na requisição: {e}')
@@ -152,5 +211,5 @@ if __name__ == "__main__":
     if not token:
         raise ValueError("❌ Variável de ambiente TOKEN não encontrada no Railway!")
     
-    print('🎮 Discord Bump Bot')
+    print('🎮 Discord Bump Bot - Setup Automático')
     asyncio.run(main())
