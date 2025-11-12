@@ -3,6 +3,7 @@ import random
 import asyncio
 import aiohttp
 import json
+import time
 
 class DiscordSelfBot:
     def __init__(self):
@@ -97,17 +98,25 @@ class DiscordSelfBot:
             channel_name = suggested_channels[0]['name']
             print(f'\n✅ Canal selecionado automaticamente: #{channel_name}')
             print('💡 Dica: Se quiser outro canal, modifique o código')
-            await self.bump_loop()
         else:
             # Se não encontrar canal sugerido, usa o primeiro canal
             self.bump_channel_id = text_channels[0]['id']
             channel_name = text_channels[0]['name']
             print(f'\n✅ Usando o primeiro canal disponível: #{channel_name}')
             print('💡 Dica: Se quiser outro canal, modifique o código')
-            await self.bump_loop()
+        
+        # Testa ambiente antes de iniciar o loop
+        print(f'\n🔧 Configurando ambiente...')
+        await self.test_channel_permissions()
+        await self.debug_disboard_info()
+        await self.bump_loop()
+
+    def _generate_session_id(self):
+        """Gera um session_id mais realista"""
+        return f"{random.randint(10000000000000000, 99999999999999999)}"
 
     async def execute_bump_command(self):
-        """Executa o comando slash /bump do Disboard"""
+        """Executa o comando slash /bump do Disboard - Versão Corrigida"""
         if not self.bump_channel_id:
             print('❌ Canal não configurado!')
             return False
@@ -115,48 +124,79 @@ class DiscordSelfBot:
         payload = {
             'type': 2,
             'application_id': '302050872383242240',  # ID do Disboard
-            'guild_id': self.guild_id,  # ID do servidor
-            'channel_id': self.bump_channel_id,  # ID do canal
-            'session_id': f'session_{random.randint(1000, 9999)}',
+            'guild_id': self.guild_id,
+            'channel_id': self.bump_channel_id,
+            'session_id': self._generate_session_id(),
             'data': {
-                'version': '11926',
                 'id': '947088344167366698',  # ID do comando bump
                 'name': 'bump',
                 'type': 1,
                 'options': [],
-                'application_command': {
-                    'id': '947088344167366698',
-                    'application_id': '302050872383242240',
-                    'version': '11926',
-                    'default_permission': True,
-                    'default_member_permissions': None,
-                    'type': 1,
-                    'nsfw': False,
-                    'name': 'bump',
-                    'description': 'Bump the server',
-                    'dm_permission': True,
-                    'options': []
-                },
-                'attachments': []
-            }
+                'version': '11926'
+            },
+            'nonce': str(int(time.time() * 1000))
         }
 
-        url = f'https://discord.com/api/v9/interactions'
+        url = 'https://discord.com/api/v9/interactions'
         
         try:
             async with self.session.post(url, json=payload) as response:
+                print(f'📡 Status da resposta: {response.status}')
+                
                 if response.status in [200, 204]:
                     print('✅ Bump executado com sucesso!')
                     return True
                 else:
-                    print(f'❌ Erro ao executar bump: {response.status}')
+                    # Tenta ler a resposta de erro
+                    try:
+                        error_text = await response.text()
+                        print(f'❌ Erro detalhado: {error_text}')
+                    except:
+                        print(f'❌ Erro ao executar bump: {response.status}')
                     return False
         except Exception as e:
             print(f'❌ Erro na requisição: {e}')
             return False
 
+    async def debug_disboard_info(self):
+        """Debug: Verifica informações do Disboard no servidor"""
+        print('🔍 Verificando comandos do Disboard...')
+        url = f'https://discord.com/api/v9/guilds/{self.guild_id}/applications/302050872383242240/commands'
+        
+        try:
+            async with self.session.get(url) as response:
+                print(f'📡 Status do debug Disboard: {response.status}')
+                if response.status == 200:
+                    commands = await response.json()
+                    print('✅ Comandos do Disboard disponíveis:')
+                    for cmd in commands:
+                        print(f"  - {cmd['name']} (ID: {cmd['id']})")
+                else:
+                    print(f'❌ Não foi possível buscar comandos: {response.status}')
+        except Exception as e:
+            print(f'❌ Erro no debug Disboard: {e}')
+
+    async def test_channel_permissions(self):
+        """Testa se tem permissão no canal"""
+        print(f'🔍 Testando permissões no canal...')
+        url = f'https://discord.com/api/v9/channels/{self.bump_channel_id}'
+        
+        try:
+            async with self.session.get(url) as response:
+                print(f'📡 Status do teste de canal: {response.status}')
+                if response.status == 200:
+                    channel_data = await response.json()
+                    print(f'✅ Canal #{channel_data.get("name")} acessível')
+                    return True
+                else:
+                    print(f'❌ Sem acesso ao canal: {response.status}')
+                    return False
+        except Exception as e:
+            print(f'❌ Erro ao testar canal: {e}')
+            return False
+
     async def bump_loop(self):
-        """Loop principal para executar bumps periodicamente"""
+        """Loop principal corrigido para executar bumps periodicamente"""
         bump_count = 0
         
         print(f'\n🚀 Iniciando loop de bump:')
@@ -173,6 +213,9 @@ class DiscordSelfBot:
             print(f'✅ Bump #{bump_count} realizado com sucesso!')
         else:
             print(f'❌ Falha no bump #{bump_count}')
+            # Espera um pouco antes de tentar novamente
+            print('⏰ Aguardando 10 minutos antes da próxima tentativa...')
+            await asyncio.sleep(600)
         
         while True:
             # Espera 2-3 horas (aleatório) para o próximo bump
@@ -190,6 +233,9 @@ class DiscordSelfBot:
                 print(f'✅ Bump #{bump_count} realizado com sucesso!')
             else:
                 print(f'❌ Falha no bump #{bump_count}')
+                # Espera 10 minutos antes de tentar novamente em caso de erro
+                print('⏰ Aguardando 10 minutos antes da próxima tentativa...')
+                await asyncio.sleep(600)
 
     async def close(self):
         """Fecha a sessão"""
@@ -202,6 +248,8 @@ async def main():
         await bot.start()
     except KeyboardInterrupt:
         print('\n👋 Parando o bot...')
+    except Exception as e:
+        print(f'❌ Erro crítico: {e}')
     finally:
         await bot.close()
 
@@ -212,4 +260,5 @@ if __name__ == "__main__":
         raise ValueError("❌ Variável de ambiente TOKEN não encontrada no Railway!")
     
     print('🎮 Discord Bump Bot - Setup Automático')
+    print('🔄 Versão Corrigida - Debug Ativado')
     asyncio.run(main())
