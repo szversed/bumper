@@ -11,6 +11,7 @@ class DiscordSelfBot:
         self.guild_id = '1438084818725244971'  # ID fixo do servidor
         self.bump_channel_id = None  # Será definido automaticamente
         self.session = None
+        self.disboard_command_version = None  # Versão será buscada dinamicamente
         self.headers = {
             'Authorization': self.token,
             'Content-Type': 'application/json',
@@ -108,18 +109,75 @@ class DiscordSelfBot:
         # Testa ambiente antes de iniciar o loop
         print(f'\n🔧 Configurando ambiente...')
         await self.test_channel_permissions()
-        await self.debug_disboard_info()
+        await self.get_disboard_commands_info()
         await self.bump_loop()
 
     def _generate_session_id(self):
         """Gera um session_id mais realista"""
         return f"{random.randint(10000000000000000, 99999999999999999)}"
 
+    async def get_disboard_commands_info(self):
+        """Busca informações atualizadas dos comandos do Disboard"""
+        print('🔍 Buscando comandos atualizados do Disboard...')
+        
+        # Método 1: Buscar comandos do servidor
+        url = f'https://discord.com/api/v9/guilds/{self.guild_id}/applications/302050872383242240/commands'
+        
+        try:
+            async with self.session.get(url) as response:
+                print(f'📡 Status do comando: {response.status}')
+                if response.status == 200:
+                    commands = await response.json()
+                    print('✅ Comandos do Disboard disponíveis:')
+                    for cmd in commands:
+                        print(f"  - {cmd['name']} (ID: {cmd['id']}, Versão: {cmd.get('version', 'N/A')})")
+                        if cmd['name'] == 'bump':
+                            self.disboard_command_version = cmd.get('version')
+                            print(f'🎯 Versão do comando bump encontrada: {self.disboard_command_version}')
+                    return True
+                else:
+                    print(f'❌ Não foi possível buscar comandos: {response.status}')
+                    return await self.get_global_disboard_commands()
+        except Exception as e:
+            print(f'❌ Erro ao buscar comandos: {e}')
+            return await self.get_global_disboard_commands()
+
+    async def get_global_disboard_commands(self):
+        """Busca comandos globais do Disboard como fallback"""
+        print('🔄 Buscando comandos globais do Disboard...')
+        url = 'https://discord.com/api/v9/applications/302050872383242240/commands'
+        
+        try:
+            async with self.session.get(url) as response:
+                if response.status == 200:
+                    commands = await response.json()
+                    print('✅ Comandos globais do Disboard:')
+                    for cmd in commands:
+                        print(f"  - {cmd['name']} (ID: {cmd['id']}, Versão: {cmd.get('version', 'N/A')})")
+                        if cmd['name'] == 'bump':
+                            self.disboard_command_version = cmd.get('version')
+                            print(f'🎯 Versão global do comando bump: {self.disboard_command_version}')
+                    return True
+                else:
+                    print(f'❌ Erro em comandos globais: {response.status}')
+                    return False
+        except Exception as e:
+            print(f'❌ Erro em comandos globais: {e}')
+            return False
+
     async def execute_bump_command(self):
-        """Executa o comando slash /bump do Disboard - Versão Corrigida"""
+        """Executa o comando slash /bump do Disboard com versão dinâmica"""
         if not self.bump_channel_id:
             print('❌ Canal não configurado!')
             return False
+
+        # Se não temos a versão, tenta buscar novamente
+        if not self.disboard_command_version:
+            print('🔄 Buscando versão do comando...')
+            await self.get_disboard_commands_info()
+
+        # Usa versão padrão se não conseguir buscar
+        version = self.disboard_command_version or "11926"
 
         payload = {
             'type': 2,
@@ -132,11 +190,12 @@ class DiscordSelfBot:
                 'name': 'bump',
                 'type': 1,
                 'options': [],
-                'version': '11926'
+                'version': version
             },
             'nonce': str(int(time.time() * 1000))
         }
 
+        print(f'📤 Enviando bump com versão: {version}')
         url = 'https://discord.com/api/v9/interactions'
         
         try:
@@ -150,31 +209,19 @@ class DiscordSelfBot:
                     # Tenta ler a resposta de erro
                     try:
                         error_text = await response.text()
-                        print(f'❌ Erro detalhado: {error_text}')
+                        error_data = json.loads(error_text)
+                        print(f'❌ Erro detalhado: {error_data}')
+                        
+                        # Se for erro de versão, tenta atualizar
+                        if error_data.get('code') == 50035:
+                            print('🔄 Erro de versão, atualizando comandos...')
+                            await self.get_disboard_commands_info()
                     except:
                         print(f'❌ Erro ao executar bump: {response.status}')
                     return False
         except Exception as e:
             print(f'❌ Erro na requisição: {e}')
             return False
-
-    async def debug_disboard_info(self):
-        """Debug: Verifica informações do Disboard no servidor"""
-        print('🔍 Verificando comandos do Disboard...')
-        url = f'https://discord.com/api/v9/guilds/{self.guild_id}/applications/302050872383242240/commands'
-        
-        try:
-            async with self.session.get(url) as response:
-                print(f'📡 Status do debug Disboard: {response.status}')
-                if response.status == 200:
-                    commands = await response.json()
-                    print('✅ Comandos do Disboard disponíveis:')
-                    for cmd in commands:
-                        print(f"  - {cmd['name']} (ID: {cmd['id']})")
-                else:
-                    print(f'❌ Não foi possível buscar comandos: {response.status}')
-        except Exception as e:
-            print(f'❌ Erro no debug Disboard: {e}')
 
     async def test_channel_permissions(self):
         """Testa se tem permissão no canal"""
@@ -204,36 +251,23 @@ class DiscordSelfBot:
         print(f'📝 Canal: {self.bump_channel_id}')
         print('⏰ Bumps automáticos a cada 2-3 horas\n')
         
-        # Primeiro bump imediatamente
-        bump_count += 1
-        print(f'--- Tentativa de bump #{bump_count} ---')
-        success = await self.execute_bump_command()
-        
-        if success:
-            print(f'✅ Bump #{bump_count} realizado com sucesso!')
-        else:
-            print(f'❌ Falha no bump #{bump_count}')
-            # Espera um pouco antes de tentar novamente
-            print('⏰ Aguardando 10 minutos antes da próxima tentativa...')
-            await asyncio.sleep(600)
-        
         while True:
-            # Espera 2-3 horas (aleatório) para o próximo bump
-            wait_seconds = random.randint(7200, 10800)  # 2-3 horas em segundos
-            wait_hours = wait_seconds / 3600
-            print(f'⏰ Próximo bump em {wait_hours:.2f} horas...\n')
-            
-            await asyncio.sleep(wait_seconds)
-            
             bump_count += 1
             print(f'--- Tentativa de bump #{bump_count} ---')
             success = await self.execute_bump_command()
             
             if success:
                 print(f'✅ Bump #{bump_count} realizado com sucesso!')
+                # Espera 2-3 horas (aleatório) para o próximo bump
+                wait_seconds = random.randint(7200, 10800)  # 2-3 horas em segundos
+                wait_hours = wait_seconds / 3600
+                print(f'⏰ Próximo bump em {wait_hours:.2f} horas...\n')
+                await asyncio.sleep(wait_seconds)
             else:
                 print(f'❌ Falha no bump #{bump_count}')
-                # Espera 10 minutos antes de tentar novamente em caso de erro
+                # Em caso de erro, espera menos tempo e tenta atualizar versão
+                print('🔄 Atualizando informações do comando...')
+                await self.get_disboard_commands_info()
                 print('⏰ Aguardando 10 minutos antes da próxima tentativa...')
                 await asyncio.sleep(600)
 
@@ -260,5 +294,5 @@ if __name__ == "__main__":
         raise ValueError("❌ Variável de ambiente TOKEN não encontrada no Railway!")
     
     print('🎮 Discord Bump Bot - Setup Automático')
-    print('🔄 Versão Corrigida - Debug Ativado')
+    print('🔄 Versão com Busca Dinâmica de Comandos')
     asyncio.run(main())
